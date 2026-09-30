@@ -1,0 +1,27 @@
+require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
+const mongoose = require('mongoose');
+const Product = require('../models/Product');
+const Category = require('../models/Category');
+
+const categories = ['Phones', 'Laptops', 'Audio', 'Wearables', 'Gaming', 'Accessories'];
+const products = [
+  { name: 'Aurora Phone 14', brand: 'Aurora', category: 'Phones', price: 899, discountPrice: 799, stock: 24, rating: 4.8, featured: true, shortDescription: '6.4-inch OLED, 48MP camera, two-day battery.', description: 'A bright 120Hz OLED display, flagship camera system and dependable all-day performance in a refined aluminum body.', images: ['https://images.unsplash.com/photo-1592286927505-1def25115558?w=1000&q=85&auto=format&fit=crop'], specifications: { Display: '6.4-inch OLED, 120Hz', Camera: '48MP main', Storage: '256GB', Battery: '5000mAh' } },
+  { name: 'Nimbus Book Pro 14', brand: 'Nimbus', category: 'Laptops', price: 1499, discountPrice: 1399, stock: 12, rating: 4.9, featured: true, shortDescription: '14-inch high-refresh display, 32GB memory, all-day battery.', description: 'A precision-built laptop for demanding creative work, with a vivid display, quiet cooling and fast charging.', images: ['https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=1000&q=85&auto=format&fit=crop'], specifications: { Display: '14-inch 2.8K 120Hz', Memory: '32GB', Storage: '1TB SSD', Weight: '1.4kg' } },
+  { name: 'Echo Buds Air', brand: 'Echo', category: 'Audio', price: 179, discountPrice: 149, stock: 35, rating: 4.6, featured: true, shortDescription: 'Adaptive noise cancelling and 30-hour total playback.', description: 'Compact wireless earbuds with balanced sound, adaptive noise cancelling and a pocket-sized charging case.', images: ['https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=1000&q=85&auto=format&fit=crop'], specifications: { Playback: '30 hours with case', Connectivity: 'Bluetooth 5.3', Charging: 'USB-C and wireless' } },
+  { name: 'Orbit Watch SE', brand: 'Orbit', category: 'Wearables', price: 249, discountPrice: 229, stock: 18, rating: 4.5, featured: false, shortDescription: 'GPS, heart-rate tracking and up to five-day battery life.', description: 'A durable everyday smartwatch with built-in GPS, health insights and a bright always-on display.', images: ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=1000&q=85&auto=format&fit=crop'], specifications: { Display: '1.9-inch AMOLED', GPS: 'Dual-band', WaterResistance: '5 ATM' } },
+  { name: 'Flux Tablet 11', brand: 'Flux', category: 'Accessories', price: 599, discountPrice: 549, stock: 16, rating: 4.7, featured: true, shortDescription: '11-inch high-resolution display with included stylus.', description: 'A light, capable tablet made for sketching, note-taking and relaxed media viewing, with stylus included.', images: ['https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?w=1000&q=85&auto=format&fit=crop'], specifications: { Display: '11-inch Liquid Retina', Storage: '128GB', Included: 'Active stylus' } },
+  { name: 'Arcade Mechanical Keyboard', brand: 'Arcade', category: 'Gaming', price: 129, stock: 28, rating: 4.4, featured: false, shortDescription: 'Hot-swappable switches, compact layout and warm backlight.', description: 'A sturdy mechanical keyboard with tactile switches, hot-swap sockets and a compact layout for desk space.', images: ['https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=1000&q=85&auto=format&fit=crop'], specifications: { Layout: '75%', Switches: 'Hot-swappable tactile', Connection: 'USB-C' } },
+  { name: 'Pulse Wireless Mouse', brand: 'Pulse', category: 'Accessories', price: 69, stock: 42, rating: 4.3, featured: false, shortDescription: 'Quiet precision tracking with a comfortable sculpted shape.', description: 'A comfortable wireless mouse built for smooth work sessions, with precise tracking and multi-device pairing.', images: ['https://images.unsplash.com/photo-1527814050087-3793815479db?w=1000&q=85&auto=format&fit=crop'], specifications: { Sensor: '26,000 DPI', Connection: 'Bluetooth and 2.4GHz', Battery: 'Up to 70 hours' } },
+  { name: 'Volt 65W USB-C Charger', brand: 'Volt', category: 'Accessories', price: 49, stock: 60, rating: 4.6, featured: false, shortDescription: 'Pocket-sized GaN charger for phones, tablets and laptops.', description: 'A compact GaN power adapter with two USB-C ports and smart power delivery for travel and daily carry.', images: ['https://images.unsplash.com/photo-1583863788434-e58a36330cf0?w=1000&q=85&auto=format&fit=crop'], specifications: { Output: '65W maximum', Ports: '2 × USB-C', Technology: 'GaN' } },
+];
+
+async function seed() {
+  if (!process.env.MONGODB_URI) throw new Error('Set MONGODB_URI in the root .env file first.');
+  await mongoose.connect(process.env.MONGODB_URI);
+  await Promise.all(categories.map((name) => Category.updateOne({ name }, { $setOnInsert: { name } }, { upsert: true })));
+  for (const product of products) await Product.updateOne({ name: product.name }, { $setOnInsert: product }, { upsert: true });
+  console.log(`Seeded ${categories.length} categories and ${products.length} products (existing products were preserved).`);
+  await mongoose.disconnect();
+}
+
+seed().catch(async (error) => { console.error(error.message); await mongoose.disconnect(); process.exit(1); });
