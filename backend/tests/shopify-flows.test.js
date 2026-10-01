@@ -1,4 +1,4 @@
-﻿const { test } = require('node:test');
+const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const { once } = require('node:events');
@@ -95,8 +95,18 @@ test('checkout flows and verified Shopify webhook lifecycle through exported Ver
       assert.equal(order.paymentStatus, 'pending');
       assert.equal(shopifyOrder, undefined);
     });
+    await t.test('missing mapping returns friendly 409 without calling Shopify', async () => {
+      const previous = product.shopifyVariantId;
+      product.shopifyVariantId = '';
+      try {
+        const response = await request('/api/shopify/checkout', { items: [{ productId, quantity: 2 }], shippingAddress: address, price: 0.01, totalAmount: 0.01 });
+        assert.equal(response.status, 409);
+        assert.match((await response.json()).message, /not configured for online payment/);
+        assert.equal(checkout, undefined);
+      } finally { product.shopifyVariantId = previous; }
+    });
     await t.test('Shopify Checkout creates a mapped Storefront cart without marking paid', async () => {
-      const response = await request('/api/shopify/checkout', { items: [{ productId, quantity: 2 }], shippingAddress: address });
+      const response = await request('/api/shopify/checkout', { items: [{ productId, quantity: 2 }], shippingAddress: address, price: 0.01, totalAmount: 0.01 });
       assert.equal(response.status, 201);
       assert.equal((await response.json()).checkoutId, checkout.id);
       assert.equal(checkout.status, 'pending');
