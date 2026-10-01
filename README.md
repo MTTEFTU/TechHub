@@ -105,10 +105,32 @@ For a safe Shopify test, enable Shopify Payments test mode (or the Bogus Gateway
 
 ## Deployment
 
-1. Create a MongoDB Atlas database and configure network access for your API host.
-2. Deploy `backend/` as a Node service (for example, Render). Use `npm install` as the install command and `npm start` as the start command. Configure `MONGODB_URI`, a strong `JWT_SECRET`, `PORT` if required by the host, and `CLIENT_URL` with the deployed frontend origin. Deploy the API and seed products using `npm run seed` from the backend service shell.
-3. Set `NEXT_PUBLIC_API_URL` to the deployed API origin plus `/api` and `NEXT_PUBLIC_SITE_URL` to the deployed frontend origin, then deploy the repository as a Next.js app (for example, Vercel). Update the API's `CLIENT_URL` to that exact frontend origin and redeploy the API.
-4. Create the first administrator once using the backend shell with `ADMIN_NAME`, `ADMIN_EMAIL`, and a temporary strong `ADMIN_PASSWORD`, then run `npm run admin:create`. Remove the temporary variables after creation.
-5. Use HTTPS for both deployed services. Never commit `.env`, expose `JWT_SECRET` to the frontend, or place administrator credentials in client-side code.
+### Express API on Vercel
+
+Create a separate Vercel project connected to this repository with Root Directory `backend` and Framework Preset `Other`. The backend's `vercel.json` routes requests through the Express function; do not change the frontend project's root `vercel.json`.
+
+Use `npm install` as the install command. Leave Build Command and Output Directory empty; this backend has no build step. Vercel serves the exported Express app as a function, so `npm start` is only for local development.
+
+Add these runtime variables under Vercel Project Settings > Environment Variables:
+
+- `MONGODB_URI`: MongoDB Atlas connection string.
+- `JWT_SECRET`: a unique, randomly generated secret of at least 32 characters.
+- `CLIENT_URL`: the deployed frontend origin, with no path; comma-separated origins are supported.
+- `SHOPIFY_STORE_DOMAIN`: the store's `*.myshopify.com` domain.
+- `SHOPIFY_STOREFRONT_ACCESS_TOKEN`: the Storefront API token.
+- `SHOPIFY_WEBHOOK_SECRET`: the Shopify app/webhook signing secret used to verify deliveries.
+- `SHOPIFY_API_VERSION`: optional; defaults to `2026-07` when omitted.
+
+The first three variables are required for the API. The Shopify variables are required for online checkout and verified webhook processing. `PORT` is for local development and is provided by the local server; it is not needed in Vercel. Configure MongoDB Atlas network access so Vercel Functions can reach the cluster without exposing the database to unrestricted access.
+
+After deployment, test `https://YOUR_BACKEND_HOST/api/health`; it should return `{"ok":true}`. Configure Shopify JSON webhooks for `orders/paid` and `refunds/create` at `https://YOUR_BACKEND_HOST/api/shopify/webhooks`.
+
+### Frontend and initial data
+
+Deploy the Next.js frontend separately with its own project rooted at the repository root and the Next.js preset. Set `NEXT_PUBLIC_API_URL` to the backend origin only (for example, `https://YOUR_BACKEND_HOST`; the frontend adds `/api`) and `NEXT_PUBLIC_SITE_URL` to the frontend origin. Set the backend's `CLIENT_URL` to that same frontend origin.
+
+Seed catalog data by running `npm run seed` from `backend/` with `MONGODB_URI` configured in a trusted local environment. Create the first administrator once with `MONGODB_URI`, `ADMIN_NAME`, `ADMIN_EMAIL`, and a temporary strong `ADMIN_PASSWORD`, then run `npm run admin:create`; remove those temporary values afterward. Do not add admin provisioning credentials to Vercel runtime settings.
+
+Use HTTPS for both deployments. Never commit `.env`, expose backend secrets to the frontend, or place administrator credentials in client-side code.
 
 The source retains the existing Next.js structure in this workspace rather than introducing a second React application and duplicate frontend. The API is independently runnable from `backend/`.
