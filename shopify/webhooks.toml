@@ -1,0 +1,7 @@
+﻿# App-specific subscriptions; applied to the configuration downloaded from your existing app.
+[webhooks]
+api_version = "2026-07"
+
+[[webhooks.subscriptions]]
+topics = ["orders/paid", "refunds/create"]
+uri = "https://tech-hub-ivory-phi.vercel.app/api/shopify/webhooks"

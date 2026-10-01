@@ -1,0 +1,24 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "d8185c2135595826fd014a61ee410a23"
+name = "Tech Hub Integration"
+application_url = "https://tech-hub-ivory-phi.vercel.app"
+embedded = false
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_orders"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [ ]
+
+[webhooks]
+api_version = "2026-10"
+
+# BEGIN TECH HUB WEBHOOKS
+[[webhooks.subscriptions]]
+topics = ["orders/paid", "refunds/create"]
+uri = "https://tech-hub-ivory-phi.vercel.app/api/shopify/webhooks"
+# END TECH HUB WEBHOOKS

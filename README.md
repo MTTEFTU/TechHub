@@ -134,3 +134,5 @@ Seed catalog data by running `npm run seed` from `backend/` with `MONGODB_URI` c
 Use HTTPS for both deployments. Never commit `.env`, expose backend secrets to the frontend, or place administrator credentials in client-side code.
 
 The source retains the existing Next.js structure in this workspace rather than introducing a second React application and duplicate frontend. The API is independently runnable from `backend/`.
+
+See [existing Shopify app webhook setup](shopify/README.md) for CLI linking, subscriptions, release commands, and safe verification.
