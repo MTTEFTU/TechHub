@@ -1,3 +1,4 @@
+// Legacy schema retained for inspection only; never used by live application routes.
 const mongoose = require('mongoose');
 
 const productSchema = new mongoose.Schema({

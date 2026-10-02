@@ -10,10 +10,18 @@ if (!fs.existsSync(configPath)) {
 }
 let config = fs.readFileSync(configPath, 'utf8').replace(/^\uFEFF/, '');
 if (!/^client_id\s*=\s*"[^"]+"/m.test(config)) throw new Error('Linked app client_id is missing.');
+// Preserve existing permissions while adding only the permissions used by Tech Hub.
+const requiredScopes = ['read_orders', 'read_products', 'write_products', 'write_orders'];
+const scopeLine = /^scopes\s*=\s*"([^"]*)"/m;
+if (scopeLine.test(config)) {
+  config = config.replace(scopeLine, (_line, value) => 'scopes = "' + [...new Set([...value.split(',').map(s => s.trim()).filter(Boolean), ...requiredScopes])].join(',') + '"');
+} else {
+  throw new Error('The linked app access_scopes.scopes setting is missing. Review the existing app configuration.');
+}
 // Remove only our previous generated subscription, preserving downloaded app settings.
 config = config.replace(/# BEGIN TECH HUB WEBHOOKS[\s\S]*?# END TECH HUB WEBHOOKS\s*/g, '');
-if (/orders\/paid|refunds\/create/.test(config)) {
-  throw new Error('An existing target subscription needs review. Remove only its orders/paid or refunds/create entries before rerunning; preserve other topics.');
+if (/orders\/paid|refunds\/create|products\/(?:create|update|delete)/.test(config)) {
+  throw new Error('An existing target subscription needs review. Consolidate only the conflicting order/refund/product entries before rerunning; preserve other topics.');
 }
 const table = /^\[webhooks\][^\S\r\n]*\r?\n([\s\S]*?)(?=^\[|$(?![\s\S]))/m;
 if (table.test(config)) {
@@ -29,4 +37,4 @@ if (table.test(config)) {
 }
 const subscriptions = fragment.slice(fragment.indexOf('[[webhooks.subscriptions]]')).trim();
 fs.writeFileSync(configPath, config.trimEnd() + '\n\n' + begin + '\n' + subscriptions + '\n' + end + '\n');
-console.log('Configured orders/paid and refunds/create in the linked app configuration. Review the diff before deploying.');
+console.log('Configured order, refund, and product webhooks in the linked app configuration. Review the diff before deploying.');

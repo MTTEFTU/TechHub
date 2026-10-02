@@ -3,10 +3,11 @@
 import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
+import { money } from '@/lib/products';
 import { ApiProduct, apiRequest } from '@/lib/api';
 
 type Stats = { totalProducts: number; totalUsers: number; totalOrders: number; pendingOrders: number; completedOrders: number; lowStockProducts: number; totalSales: number };
-type AdminOrder = { _id: string; totalAmount: number; orderStatus: string; paymentMethod: string; paymentStatus: string; shopifyOrderName?: string; createdAt: string; products: { name: string; quantity: number }[]; user?: { name: string; email: string } };
+type AdminOrder = { currencyCode: string; creationStatus?: string; _id: string; totalAmount: number; orderStatus: string; paymentMethod: string; paymentStatus: string; shopifyOrderName?: string; createdAt: string; products: { name: string; quantity: number }[]; user?: { name: string; email: string } };
 type AdminUser = { _id: string; name: string; email: string; role: string; createdAt: string };
 type Category = { _id: string; name: string; image: string };
 type Message = { _id: string; name: string; email: string; subject: string; message: string; createdAt: string };
@@ -36,7 +37,7 @@ export default function AdminPage() {
       try {
         setError('');
         if (panel === 'dashboard') setStats((await apiRequest<{ stats: Stats }>('/admin/stats', {}, token)).stats);
-        if (panel === 'products') setProducts((await apiRequest<{ products: ApiProduct[] }>('/products', {}, token)).products);
+        if (panel === 'products') setProducts((await apiRequest<{ products: ApiProduct[] }>('/admin/products', {}, token)).products);
         if (panel === 'orders') setOrders((await apiRequest<{ orders: AdminOrder[] }>('/orders', {}, token)).orders);
         if (panel === 'users') setUsers((await apiRequest<{ users: AdminUser[] }>('/admin/users', {}, token)).users);
         if (panel === 'categories') setCategories((await apiRequest<{ categories: Category[] }>('/categories', {}, token)).categories);
@@ -51,40 +52,32 @@ export default function AdminPage() {
     event.preventDefault();
     const values = Object.fromEntries(new FormData(event.currentTarget).entries());
     const body = {
-      name: values.name, brand: values.brand, category: values.category, price: Number(values.price),
-      discountPrice: values.discountPrice ? Number(values.discountPrice) : null,
-      stock: Number(values.stock), shortDescription: values.shortDescription, description: values.description,
-      images: String(values.images).split(',').map((image) => image.trim()).filter(Boolean),
-      featured: values.featured === 'on',
-      shopifyProductId: values.shopifyProductId, shopifyVariantId: String(values.shopifyVariantId || '').trim(),
+      title: values.name, vendor: values.brand, productType: values.category,
+      descriptionHtml: values.descriptionHtml,
+      tags: String(values.tags || '').split(',').map(tag => tag.trim()).filter(Boolean),
+      ...(editing ? { variants: editing.variants.map((variant, index) => ({
+        id: variant.id, price: String(values['price-' + index]),
+        compareAtPrice: values['compare-' + index] || null,
+        selectedOptions: variant.selectedOptions.map((option, optionIndex) => ({
+          name: option.name, value: String(values['option-' + index + '-' + optionIndex]),
+        })),
+      })) } : {}),
     };
     try {
-      await apiRequest(editing ? `/products/${editing._id}` : '/products', { method: editing ? 'PUT' : 'POST', body: JSON.stringify(body) }, token || undefined);
-      setEditing(null); setNotice(editing ? 'Product updated.' : 'Product added.'); setRefresh((value) => value + 1);
+      await apiRequest(editing ? `/products/${encodeURIComponent(editing._id)}` : '/products', { method: editing ? 'PUT' : 'POST', body: JSON.stringify(body) }, token || undefined);
+      setEditing(null); setNotice(editing ? 'Shopify product updated.' : 'Draft created in Shopify. Publish it to Tech Hub Headless to show it in the store.'); setRefresh((value) => value + 1);
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Product could not be saved.'); }
   }
 
   async function deleteProduct(id: string) {
     if (!window.confirm('Delete this product?')) return;
-    try { await apiRequest(`/products/${id}`, { method: 'DELETE' }, token || undefined); setNotice('Product deleted.'); setRefresh((value) => value + 1); }
+    try { await apiRequest(`/products/${encodeURIComponent(id)}`, { method: 'DELETE' }, token || undefined); setNotice('Product deleted.'); setRefresh((value) => value + 1); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Product could not be deleted.'); }
   }
 
   async function setOrderStatus(id: string, orderStatus: string) {
-    try { await apiRequest(`/orders/${id}/status`, { method: 'PUT', body: JSON.stringify({ orderStatus }) }, token || undefined); setNotice('Order status updated.'); setRefresh((value) => value + 1); }
+    try { await apiRequest(`/orders/${id}/status`, { method: 'PUT', body: JSON.stringify({ orderStatus }) }, token || undefined); setNotice('Order update submitted. Refresh to check its status.'); setRefresh((value) => value + 1); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Order could not be updated.'); }
-  }
-
-  async function addCategory(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    try { await apiRequest('/categories', { method: 'POST', body: JSON.stringify({ name: form.get('name'), image: form.get('image') }) }, token || undefined); event.currentTarget.reset(); setRefresh((value) => value + 1); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Category could not be saved.'); }
-  }
-
-  async function removeCategory(category: Category) {
-    try { await apiRequest(`/categories/${category._id}`, { method: 'DELETE' }, token || undefined); setRefresh((value) => value + 1); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Category could not be deleted.'); }
   }
 
   async function removeReview(id: string) {
@@ -105,17 +98,20 @@ export default function AdminPage() {
       {panel === 'products' && <div className="mt-7 grid gap-8 lg:grid-cols-[minmax(280px,0.8fr)_1.2fr]">
         <form key={editing?._id || 'new-product'} onSubmit={saveProduct} className="h-fit space-y-3 border-y border-[var(--color-border)] py-5"><h2 className="font-heading text-xl font-semibold text-ink">{editing ? 'Edit product' : 'Add product'}</h2>
           <input name="name" required defaultValue={editing?.name} placeholder="Product name" className={fieldClass} /><input name="brand" defaultValue={editing?.brand} placeholder="Brand" className={fieldClass} /><input name="category" required defaultValue={editing?.category} placeholder="Category" className={fieldClass} />
-          <div className="grid grid-cols-2 gap-3"><input name="price" type="number" min="0" step="0.01" required defaultValue={editing?.price} placeholder="Price" className={fieldClass} /><input name="discountPrice" type="number" min="0" step="0.01" defaultValue={editing?.discountPrice || ''} placeholder="Sale price" className={fieldClass} /><input name="stock" type="number" min="0" required defaultValue={editing?.stock ?? 0} placeholder="Stock" className={fieldClass} /></div>
-          <input name="images" defaultValue={editing?.images?.join(', ')} placeholder="Image URLs, comma separated" className={fieldClass} /><input name="shortDescription" defaultValue={editing?.shortDescription} placeholder="Short description" className={fieldClass} /><textarea name="description" rows={3} defaultValue={editing?.description} placeholder="Full description" className={fieldClass} /><label className="flex items-center gap-2 text-sm text-muted"><input name="featured" type="checkbox" defaultChecked={editing?.featured} /> Featured product</label>
-          <input name="shopifyProductId" defaultValue={editing?.shopifyProductId} placeholder="Shopify product GID (optional)" className={fieldClass} /><label htmlFor="shopifyVariantId" className="block text-sm text-muted">Shopify Variant ID (optional)</label>
-          <input id="shopifyVariantId" name="shopifyVariantId" defaultValue={editing?.shopifyVariantId || ''} placeholder="gid://shopify/ProductVariant/…" pattern="gid://shopify/ProductVariant/[0-9]+" title="Enter a Shopify ProductVariant GID ending in a numeric variant ID, or leave blank." aria-describedby="shopifyVariantHelp" className={fieldClass} />
-          <p id="shopifyVariantHelp" className="text-xs text-muted">Map this product to its Shopify variant to enable online payment. Leave blank for cash on delivery only.</p>
+          <textarea name="descriptionHtml" rows={4} defaultValue={editing?.descriptionHtml} placeholder="Description (HTML supported)" className={fieldClass} />
+          <input name="tags" defaultValue={editing?.tags.join(', ')} placeholder="Tags, comma separated (use featured for featured products)" className={fieldClass} />
+          {editing?.variants.map((variant, index) => <fieldset key={variant.id} className="space-y-2 border-t border-[var(--color-border)] pt-3">
+            <legend className="text-sm text-ink">{variant.title}</legend>
+            <label className="block text-sm text-muted">Price<input name={`price-${index}`} type="number" min="0" step="0.001" required defaultValue={variant.price.amount} className={fieldClass} /></label>
+            <label className="block text-sm text-muted">Compare-at price<input name={`compare-${index}`} type="number" min="0" step="0.001" defaultValue={variant.compareAtPrice?.amount || ''} className={fieldClass} /></label>
+            {variant.selectedOptions.map((option, optionIndex) => <label key={option.name} className="block text-sm text-muted">{option.name}<input name={`option-${index}-${optionIndex}`} required defaultValue={option.value} className={fieldClass} /></label>)}
+          </fieldset>)}
           <div className="flex gap-2"><button className="rounded-full bg-primary px-5 py-2.5 text-sm text-white">{editing ? 'Save changes' : 'Create product'}</button>{editing && <button type="button" onClick={() => setEditing(null)} className="px-3 text-sm text-muted">Cancel</button>}</div>
         </form>
-        <div className="divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">{products.map((product) => <article key={product._id} className="flex flex-wrap items-center justify-between gap-3 py-4"><div><h3 className="font-medium text-ink">{product.name}</h3><p className="mt-1 text-xs text-muted">{product.category} · ${product.price} · {product.stock} stock</p></div><div className="flex gap-3"><button onClick={() => { setEditing(product); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-sm text-primary">Edit</button><button onClick={() => deleteProduct(product._id)} className="text-sm text-red-400">Delete</button></div></article>)}</div>
+        <div className="divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">{products.map((product) => <article key={product._id} className="flex flex-wrap items-center justify-between gap-3 py-4"><div><h3 className="font-medium text-ink">{product.name}</h3><p className="mt-1 text-xs text-muted">{product.category} · {money(product.price, product.currencyCode)} · {product.stock} stock</p></div><div className="flex gap-3"><button onClick={() => { setEditing(product); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-sm text-primary">Edit</button><button onClick={() => deleteProduct(product._id)} className="text-sm text-red-400">Delete</button></div></article>)}</div>
       </div>}
-      {panel === 'categories' && <div className="mt-7 max-w-2xl"><form onSubmit={addCategory} className="flex flex-wrap gap-3"><input name="name" required placeholder="Category name" className={`${fieldClass} min-w-48 flex-1`} /><input name="image" placeholder="Image URL" className={`${fieldClass} min-w-48 flex-1`} /><button className="rounded-full bg-primary px-5 py-2.5 text-sm text-white">Add category</button></form><div className="mt-6 divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">{categories.map((category) => <div key={category._id} className="flex justify-between py-4 text-sm"><span className="text-ink">{category.name}</span><button onClick={() => removeCategory(category)} className="text-red-400">Delete</button></div>)}</div></div>}
-      {panel === 'orders' && <div className="mt-7 divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">{orders.map((order) => <article key={order._id} className="flex flex-wrap items-center justify-between gap-4 py-5"><div><p className="font-mono text-xs text-muted">{order._id}{order.shopifyOrderName ? ` · ${order.shopifyOrderName}` : ''}</p><p className="mt-1 text-sm text-ink">{order.user?.name || 'Customer'} · ${order.totalAmount.toFixed(2)}</p><p className="mt-1 text-xs text-muted">{order.products.map((item) => `${item.name} × ${item.quantity}`).join(', ')} · {order.paymentMethod} / {order.paymentStatus} · {new Date(order.createdAt).toLocaleDateString()}</p></div><select aria-label={`Update order ${order._id}`} value={order.orderStatus} onChange={(event) => setOrderStatus(order._id, event.target.value)} className={fieldClass + ' w-40'}>{['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'].map((status) => <option key={status} value={status}>{status}</option>)}</select></article>)}</div>}
+      {panel === 'categories' && <div className="mt-7 max-w-2xl"><p className="text-sm text-muted">Categories come from Shopify product types. Change a product's category in the product editor.</p><div className="mt-6 space-y-3">{categories.map(category => <p key={category._id} className="text-ink">{category.name}</p>)}</div></div>}
+      {panel === 'orders' && <div className="mt-7 divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">{orders.map((order) => <article key={order._id} className="flex flex-wrap items-center justify-between gap-4 py-5"><div><p className="font-mono text-xs text-muted">{order._id}{order.shopifyOrderName ? ` · ${order.shopifyOrderName}` : ''}</p><p className="mt-1 text-sm text-ink">{order.user?.name || 'Customer'} · {money(order.totalAmount, order.currencyCode)}</p><p className="mt-1 text-xs text-muted">{order.products.map((item) => `${item.name} × ${item.quantity}`).join(', ')} · {order.paymentMethod} / {order.paymentStatus}{order.creationStatus && order.creationStatus !== 'ready' ? ' / needs review' : ''} · {new Date(order.createdAt).toLocaleDateString()}</p></div><select aria-label={`Update order ${order._id}`} value={order.orderStatus} onChange={(event) => setOrderStatus(order._id, event.target.value)} className={fieldClass + ' w-40'}>{['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'].map((status) => <option key={status} value={status}>{status}</option>)}</select></article>)}</div>}
       {panel === 'users' && <div className="mt-7 divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">{users.map((customer) => <div key={customer._id} className="flex justify-between gap-4 py-4 text-sm"><span className="text-ink">{customer.name}<span className="block text-xs text-muted">{customer.email}</span></span><span className="text-xs uppercase text-muted">{customer.role}</span></div>)}</div>}
       {panel === 'reviews' && <div className="mt-7 divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">{reviews.map((review) => <article key={review._id} className="flex flex-wrap items-center justify-between gap-4 py-4"><div><p className="text-sm text-primary">{'★'.repeat(review.rating)} <span className="text-ink">{review.product?.name || 'Product'}</span></p><p className="mt-1 text-sm text-muted">{review.comment || 'No written comment'} · {review.user?.name || 'Customer'}</p></div><button onClick={() => removeReview(review._id)} className="text-sm text-red-400">Remove</button></article>)}</div>}
       {panel === 'messages' && <div className="mt-7 divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">{messages.map((message) => <article key={message._id} className="py-5"><div className="flex justify-between gap-3"><h3 className="font-medium text-ink">{message.subject}</h3><span className="text-xs text-muted">{new Date(message.createdAt).toLocaleDateString()}</span></div><p className="mt-1 text-xs text-muted">{message.name} · {message.email}</p><p className="mt-3 whitespace-pre-wrap text-sm text-ink">{message.message}</p></article>)}</div>}

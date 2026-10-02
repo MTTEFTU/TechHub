@@ -6,10 +6,11 @@ const shopifyCheckoutSchema = new mongoose.Schema({
   checkoutUrl: { type: String, required: true },
   status: { type: String, enum: ['pending', 'paid', 'failed', 'expired'], default: 'pending' },
   shippingAddress: {
-    fullName: String, phone: String, email: String, address: String, city: String, postalCode: String,
+    fullName: String, phone: String, email: String, address: String, city: String, postalCode: String, countryCode: String,
   },
   items: [{
-    product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
+    product: { type: String, required: true },
+    name: String, image: String, price: Number, currencyCode: String,
     shopifyVariantId: { type: String, required: true },
     quantity: { type: Number, required: true, min: 1 },
   }],

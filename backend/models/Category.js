@@ -1,3 +1,4 @@
+// Legacy category schema; catalog categories now come from Shopify product types.
 const mongoose = require('mongoose');
 
 const categorySchema = new mongoose.Schema({

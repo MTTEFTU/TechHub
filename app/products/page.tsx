@@ -2,13 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { ProductCard } from '@/components/ProductCard';
-import { API_URL, ApiProduct, productImage } from '@/lib/api';
-import { Product } from '@/lib/products';
+import { ApiProduct } from '@/lib/api';
+import { Product, toProduct } from '@/lib/products';
 
 type Category = { _id: string; name: string };
-function toProduct(product: ApiProduct): Product {
-  return { id: product._id, name: product.name, category: product.category, price: product.discountPrice ?? product.price, image: productImage(product), blurb: product.shortDescription || product.description || product.brand || '', stock: product.stock ?? 0, rating: product.rating ?? 0 };
-}
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -23,7 +20,13 @@ export default function ProductsPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    fetch(`${API_URL}/categories`).then((response) => response.ok ? response.json() : Promise.reject()).then((result) => setCategories(result.categories)).catch(() => setCategories([]));
+    fetch('/api/catalog')
+      .then(response => { if (!response.ok) throw new Error('Categories unavailable.'); return response.json(); })
+      .then((result: { products: ApiProduct[] }) => {
+        const names = [...new Set(result.products.map(product => product.productType).filter(Boolean))].sort();
+        setCategories(names.map(name => ({ _id: name, name })));
+      })
+      .catch(() => setCategories([]));
   }, []);
 
   useEffect(() => {
@@ -38,12 +41,12 @@ export default function ProductsPage() {
       if (maxPrice) params.set('maxPrice', maxPrice);
       if (inStock) params.set('inStock', 'true');
       try {
-        const response = await fetch(`${API_URL}/products?${params}`, { signal: controller.signal });
+        const response = await fetch(`/api/catalog?${params}`, { signal: controller.signal });
         const result = await response.json();
         if (!response.ok) throw new Error(result.message || 'Products could not be loaded.');
-        setProducts(result.products.map(toProduct));
+        setProducts(result.products.map((p: ApiProduct) => toProduct(p)));
       } catch (reason) {
-        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'API unavailable. Start the backend and connect MongoDB.');
+        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Shopify catalog is unavailable.');
       } finally { if (!controller.signal.aborted) setLoading(false); }
     }, 250);
     return () => { window.clearTimeout(timer); controller.abort(); };
@@ -59,7 +62,7 @@ export default function ProductsPage() {
         <select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filter category" className={fieldClass}><option value="">All categories</option>{categories.map((item) => <option key={item._id} value={item.name}>{item.name}</option>)}</select>
         <input value={minPrice} onChange={(event) => setMinPrice(event.target.value)} type="number" min="0" placeholder="Min price" aria-label="Minimum price" className={fieldClass} />
         <input value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)} type="number" min="0" placeholder="Max price" aria-label="Maximum price" className={fieldClass} />
-        <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Sort products" className={fieldClass}><option value="newest">Newest</option><option value="price-asc">Price: low to high</option><option value="price-desc">Price: high to low</option><option value="rating">Top rated</option></select>
+        <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Sort products" className={fieldClass}><option value="newest">Newest</option><option value="price-asc">Price: low to high</option><option value="price-desc">Price: high to low</option></select>
       </div>
       <label className="mt-4 inline-flex items-center gap-2 text-sm text-muted"><input type="checkbox" checked={inStock} onChange={(event) => setInStock(event.target.checked)} /> In stock only</label>
       {error && <p role="alert" className="mt-8 border-l-2 border-primary pl-4 text-sm text-muted">{error}</p>}

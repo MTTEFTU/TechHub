@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { validateCountryCode } = require('./checkoutCountry');
 
 const API_VERSION = process.env.SHOPIFY_API_VERSION || '2026-07';
 
@@ -12,7 +13,7 @@ function config() {
 
 
 // Development diagnostics only: never serialize requests, headers, carts, or entire responses.
-function logStorefrontFailure(response, result, reason) {
+function logStorefrontDiagnostic(response, result, reason, countryCode) {
   if (process.env.NODE_ENV !== 'development') return;
   const credentials = Object.entries(process.env)
     .filter(([key, value]) => value && /TOKEN|SECRET|PASSWORD|KEY|URI|DATABASE_URL/i.test(key))
@@ -30,14 +31,19 @@ function logStorefrontFailure(response, result, reason) {
   }
   function messages(entries) {
     return Array.isArray(entries) ? entries.slice(0, 20).map((entry) => ({
-      message: clean(entry?.message),
-      code: clean(entry?.code || entry?.extensions?.code),
-      field: Array.isArray(entry?.field) ? entry.field.map(clean) : undefined,
-      path: Array.isArray(entry?.path) ? entry.path.map((part) => typeof part === 'number' ? part : clean(part)) : undefined,
+      // Free-form Shopify messages may echo names, addresses, or other buyer data.
+      message: entry?.message ? '[Message omitted for privacy]' : undefined,
+      code: /^[A-Z][A-Z0-9_]{0,80}$/.test(clean(entry?.code || entry?.extensions?.code) || '') ? clean(entry?.code || entry?.extensions?.code) : undefined,
+      field: Array.isArray(entry?.field) ? entry.field.filter(part => typeof part === 'number' || ['input', 'lines', 'quantity', 'merchandiseId', 'buyerIdentity', 'countryCode', 'email'].includes(part)) : undefined,
+      path: Array.isArray(entry?.path) ? entry.path.map((part) => typeof part === 'number' ? part : ['cartCreate', 'cart', 'buyerIdentity', 'countryCode', 'userErrors', 'warnings', 'input', 'lines'].includes(part) ? part : '[Omitted]') : undefined,
     })) : [];
   }
   console.error('[Shopify Storefront]', JSON.stringify({
     reason,
+    requestedCountryCode: countryCode || null,
+    returnedCountryCode: (() => { try { return validateCountryCode(result?.data?.cartCreate?.cart?.buyerIdentity?.countryCode); } catch { return null; } })(),
+    userErrorCount: result?.data?.cartCreate?.userErrors?.length || 0,
+    warningCount: result?.data?.cartCreate?.warnings?.length || 0,
     status: response?.status ?? null,
     requestedApiVersion: API_VERSION,
     servedApiVersion: clean(response?.headers?.get?.('x-shopify-api-version')),
@@ -51,38 +57,42 @@ async function storefrontRequest(query, variables) {
   let response;
   try {
     response = await fetch(`https://${domain}/api/${API_VERSION}/graphql.json`, {
-      method: 'POST',
+      method: 'POST', cache: 'no-store', signal: AbortSignal.timeout(15000),
       headers: { 'Content-Type': 'application/json', 'X-Shopify-Storefront-Access-Token': token },
       body: JSON.stringify({ query, variables }),
     });
   } catch {
-    logStorefrontFailure(null, null, 'network_failure');
+    logStorefrontDiagnostic(null, null, 'network_failure', variables?.input?.buyerIdentity?.countryCode);
     throw Object.assign(new Error('Shopify Checkout is temporarily unavailable. Please try again.'), { status: 502 });
   }
   const result = await response.json().catch(() => null);
   if (!response.ok || !result || result.errors?.length) {
-    logStorefrontFailure(response, result, !response.ok ? 'http_error' : !result ? 'invalid_json' : 'graphql_errors');
+    logStorefrontDiagnostic(response, result, !response.ok ? 'http_error' : !result ? 'invalid_json' : 'graphql_errors', variables?.input?.buyerIdentity?.countryCode);
     throw Object.assign(new Error('Shopify Checkout could not be created. Please try again.'), { status: 502 });
   }
   const payload = result.data?.cartCreate;
-  if (!payload || payload.userErrors?.length || !payload.cart?.checkoutUrl) {
-    logStorefrontFailure(response, result, 'cart_create_failed');
+  if (query.includes('cartCreate') && (!payload || payload.userErrors?.length || !payload.cart?.checkoutUrl)) {
+    logStorefrontDiagnostic(response, result, 'cart_create_failed', variables?.input?.buyerIdentity?.countryCode);
+  }
+  if (query.includes('cartCreate') && payload?.cart?.checkoutUrl && !payload.userErrors?.length) {
+    logStorefrontDiagnostic(response, result, 'cart_create_result', variables?.input?.buyerIdentity?.countryCode);
   }
   return result.data;
 }
 
-async function createCart({ lines, email, checkoutId }) {
+async function createCart({ lines, email, checkoutId, countryCode }) {
+  validateCountryCode(countryCode);
   const query = `mutation CartCreate($input: CartInput!) {
     cartCreate(input: $input) {
-      cart { id checkoutUrl }
-      userErrors { field message }
-      warnings { message }
+      cart { id checkoutUrl buyerIdentity { countryCode } }
+      userErrors { field message code }
+      warnings { message code }
     }
   }`;
   const data = await storefrontRequest(query, {
     input: {
       lines,
-      buyerIdentity: { email },
+      buyerIdentity: { email, countryCode },
       attributes: [{ key: 'tech_hub_checkout_id', value: checkoutId }],
     },
   });
@@ -104,4 +114,4 @@ function verifyWebhook(rawBody, signature) {
   return supplied.length === computed.length && crypto.timingSafeEqual(supplied, computed);
 }
 
-module.exports = { createCart, verifyWebhook, API_VERSION };
+module.exports = { createCart, verifyWebhook, API_VERSION, storefrontRequest };

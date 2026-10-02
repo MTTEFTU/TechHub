@@ -1,69 +1,35 @@
-﻿# Existing Tech Hub Integration app webhooks
+# Existing Tech Hub Integration app
 
-Shopify supports importing an existing Dev Dashboard app with CLI:
-https://shopify.dev/docs/apps/build/cli-for-apps/migrate-from-dashboard
-https://shopify.dev/docs/api/shopify-cli/app/app-config-link
+Use the existing app and keep its public client_id and installation settings. Do not create another app.
 
-Do not run app init or create another app. From the repository root:
+```powershell
+shopify app config link
+node backend/scripts/configure-shopify-webhooks.js
+git diff -- shopify.app.toml
+shopify app deploy
+```
 
-    npm install -g @shopify/cli@latest
-    shopify app config link
-    node backend/scripts/configure-shopify-webhooks.js
-    git diff -- shopify.app.toml
-    shopify app deploy
+Choose the EXISTING Tech Hub Integration app when linking. The helper preserves all downloaded scopes/settings and adds read_products, write_products, write_orders, and the existing read_orders. It preserves the configured webhook API version and adds these full-payload subscriptions:
 
-During config link, choose the EXISTING Tech Hub Integration app and save its downloaded
-configuration as shopify.app.toml. Verify its client_id against that app's public Client ID.
-This preserves its existing name, URLs, install settings, scopes and any other subscriptions.
-The helper adds exactly the subscriptions in webhooks.toml and preserves an existing webhook
-API version (2026-07 for a configuration with no version). If existing target subscriptions
-are detected, it stops instead of overwriting them. Review and consolidate those entries first.
-Do not add filters or include_fields: the receiver needs the full payload and checkout attributes.
-Keep read_orders and all other existing scopes. No Admin API token or OAuth code is needed.
+- orders/paid
+- refunds/create
+- products/create
+- products/update
+- products/delete
 
-Deploy creates and releases a new version of the SAME app; it does not deploy Express to Vercel.
-No reinstall/re-authorization is needed for webhook-only changes with read_orders already granted.
-If the app has extensions managed elsewhere, review the deploy preview so they are preserved.
-CLI config link downloads real app identity; this repository deliberately does not invent it.
+Verify the subscription URI points to your Express backend's /api/shopify/webhooks. The committed URI preserves the existing deployment. The Next frontend's /api/catalog/revalidate is an internal invalidation endpoint, not a Shopify webhook receiver.
 
-Both ORDERS_PAID (orders/paid) and REFUNDS_CREATE (refunds/create) deliver JSON to:
-https://tech-hub-ivory-phi.vercel.app/api/shopify/webhooks
+Release the updated app configuration and approve the new scopes on the installed store. For this Dev Dashboard app and store in the same organization, configure SHOPIFY_CLIENT_ID and SHOPIFY_CLIENT_SECRET on Express. The backend exchanges them with grant_type=client_credentials at the store's /admin/oauth/access_token endpoint. It caches the issued token per warm instance and reacquires it before its roughly 24-hour expiry; no SHOPIFY_ADMIN_ACCESS_TOKEN is required. Client credentials tokens support server-side Admin calls, including COD. Switching the grant alone needs no new permissions or redirect authorization flow; ensure the app is installed and approve the existing catalog/COD scope changes if still pending. Preserve the existing app signing/client secret as SHOPIFY_WEBHOOK_SECRET. Keep Admin credentials, webhook secrets, and revalidation secrets server-side.
 
-Vercel backend environment: MONGODB_URI, JWT_SECRET, CLIENT_URL, SHOPIFY_STORE_DOMAIN,
-SHOPIFY_STOREFRONT_ACCESS_TOKEN, SHOPIFY_WEBHOOK_SECRET, optional SHOPIFY_API_VERSION
-(default 2026-07). SHOPIFY_WEBHOOK_SECRET must be this app's client secret for app-specific
-deliveries. A store-admin-created webhook signing secret is different. Keep all values private.
-Redeploy Vercel after environment changes. Existing raw-body middleware and HMAC stay intact.
+Headless Storefront permissions are separate: enable product listings, inventory, and tags; retain existing cart permissions. Publish active products to the storefront associated with the configured public Storefront token. No Tech Hub mapping is needed.
 
-Run npm test from backend. Tests use mocked database/Storefront operations and local HTTP:
-they do not place live orders or prove live MongoDB/Shopify/Vercel connectivity.
+Deploy Express and Next.js on their existing Vercel projects. Set SHOPIFY_REVALIDATION_URL to the Next.js /api/catalog/revalidate URL, and set the identical SHOPIFY_REVALIDATION_SECRET on both deployments. Redeploy after changing environments. The app CLI deploy releases Shopify configuration; it does not deploy Vercel code.
 
-Safe end-to-end test: use a development/test store or a controlled payment test window,
-a dedicated mapped variant, and Shopify Payments test mode/Bogus Gateway. Start checkout
-through Tech Hub so the cart carries tech_hub_checkout_id. Before payment, local checkout
-must be pending. Complete the test payment and confirm exactly one local paid order and
-one stock decrement. Refund that test order and confirm refunded status. Replay the paid
-delivery and confirm no duplicate order or stock decrement. Synthetic CLI payloads lack
-the local checkout mapping and may correctly return Ignored; they don't test subscriptions.
-Current duplicate protection covers immediate duplicate IDs; order lookup also prevents
-sequential paid replays from creating another order. Concurrent deliveries and partial
-database failures are not transactionally protected by this existing handler.
+Validate all five webhook topics in the existing app's delivery logs. A product notification must return 200 Revalidated. Failed cache invalidation returns non-2xx so Shopify retries. Order callbacks preserve exact raw-body verification and use actual Shopify lines/prices. The local database never decrements product stock.
 
-In Dev Dashboard > Tech Hub Integration > Logs, filter webhook deliveries for each topic.
-Inspect the destination URL, response code (200), delivery attempts, timestamp and webhook ID.
-Correlate the delivery with the local order; 200 Ignored alone does not prove order processing.
-Troubleshooting: https://shopify.dev/docs/apps/build/webhooks/troubleshoot
-refunds/create indicates a refund was created, independently of money movement; this project's
-existing behavior marks the entire local order refunded, including partial refunds.
+Run npm test in the repository root. Automated tests use mocked Shopify/MongoDB and do not create live products/orders. Perform live testing only with a controlled test product and Shopify payment test mode. Existing refunds/create semantics mark a whole order refunded, including partial refunds.
 
-After reviewing changes (never add .env):
-
-    git add README.md shopify/webhooks.toml shopify/README.md backend/scripts/configure-shopify-webhooks.js backend/tests/shopify-flows.test.js
-    git commit -m "Configure existing Shopify app webhooks and test checkout flows"
-    git push origin main
-
-After CLI linking/configuration, also commit the public configuration:
-
-    git add shopify.app.toml
-    git commit -m "Link Tech Hub Integration Shopify app configuration"
-    git push origin main
+References:
+- [CLI config link](https://shopify.dev/docs/api/shopify-cli/app/app-config-link)
+- [Access scopes](https://shopify.dev/docs/api/usage/access-scopes)
+- [Webhook troubleshooting](https://shopify.dev/docs/apps/build/webhooks/troubleshoot)

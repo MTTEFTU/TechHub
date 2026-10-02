@@ -1,34 +1,23 @@
 'use client';
 
 import { useLocale } from '@/context/LocaleContext';
-import { products } from '@/lib/products';
+import { Product, toProduct } from '@/lib/products';
 import { ProductCard } from './ProductCard';
 import { Reveal } from './Reveal';
 import { useEffect, useState } from 'react';
-import { API_URL, ApiProduct, productImage } from '@/lib/api';
+import { ApiProduct } from '@/lib/api';
 
-function displayProduct(product: ApiProduct) {
-  return {
-    id: product._id,
-    name: product.name,
-    category: product.category,
-    price: product.discountPrice ?? product.price,
-    image: productImage(product),
-    blurb: product.shortDescription || product.description || product.brand || '',
-    stock: product.stock ?? 0,
-    rating: product.rating ?? 0,
-  };
-}
 
 export function ProductGrid() {
   const { t } = useLocale();
-  const [catalog, setCatalog] = useState(products);
+  const [catalog, setCatalog] = useState<Product[]>([]);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    fetch(`${API_URL}/products`)
+    fetch('/api/catalog')
       .then((response) => response.ok ? response.json() : Promise.reject())
-      .then((result: { products: ApiProduct[] }) => setCatalog(result.products.map(displayProduct)))
-      .catch(() => setCatalog(products));
+      .then((result: { products: ApiProduct[] }) => setCatalog(result.products.map(p => toProduct(p))))
+      .catch(() => setError('Products are temporarily unavailable. Please try again.'));
   }, []);
 
   return (
@@ -38,6 +27,7 @@ export function ProductGrid() {
         <p className="mt-4 text-muted">{t('products.subtitle')}</p>
       </Reveal>
 
+      {error && <p role="alert" className="mt-8 text-center text-muted">{error}</p>}
       <Reveal stagger className="mt-14 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {catalog.map((p) => (
           <ProductCard key={p.id} product={p} />

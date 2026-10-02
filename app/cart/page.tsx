@@ -4,11 +4,12 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useLocale } from '@/context/LocaleContext';
 import { useCart } from '@/context/CartContext';
+import { money } from '@/lib/products';
 import { Reveal } from '@/components/Reveal';
 
 export default function CartPage() {
   const { t } = useLocale();
-  const { items, removeItem, setQty, subtotal } = useCart();
+  const { items, removeItem, setQty, subtotal, validating, validationError } = useCart();
 
   if (items.length === 0) {
     return (
@@ -27,6 +28,7 @@ export default function CartPage() {
     );
   }
 
+  const currencyCode = items[0]?.product.currencyCode || '';
   const shippingCost = subtotal >= 75 || subtotal === 0 ? 0 : 9;
   const total = subtotal + shippingCost;
 
@@ -36,34 +38,36 @@ export default function CartPage() {
         <h1 className="text-3xl font-semibold text-ink sm:text-4xl">{t('cart.title')}</h1>
       </Reveal>
 
+      {validationError && <p role="alert" className="mt-4 text-red-400">{validationError} Remove unavailable items or try again.</p>}
+      {validating && <p role="status" className="mt-4 text-muted">Checking Shopify prices and availability...</p>}
       <Reveal className="mt-10 divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">
         {items.map(({ product, qty }) => (
-          <div key={product.id} className="flex items-center gap-4 py-5">
+          <div key={product.variantId} className="flex items-center gap-4 py-5">
             <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-md">
               <Image src={product.image} alt={product.name} fill className="object-cover" />
             </div>
             <div className="flex-1">
               <h3 className="font-heading text-sm font-semibold text-ink">{product.name}</h3>
-              <p className="mt-1 text-sm text-muted">${product.price}</p>
+              <p className="mt-1 text-sm text-muted">{money(product.price, product.currencyCode)}</p>
             </div>
             <div className="flex items-center gap-2">
-              <label htmlFor={`qty-${product.id}`} className="sr-only">
+              <label htmlFor={`qty-${product.variantId}`} className="sr-only">
                 {t('cart.qty')}
               </label>
               <input
-                id={`qty-${product.id}`}
+                id={`qty-${product.variantId}`}
                 type="number"
                 min={1}
                 value={qty}
-                onChange={(e) => setQty(product.id, parseInt(e.target.value, 10) || 1)}
+                onChange={(e) => setQty(product.variantId, parseInt(e.target.value, 10) || 1)}
                 className="w-16 rounded-md border border-[var(--color-border)] bg-transparent px-2 py-1.5 text-sm text-ink outline-none focus:border-primary"
               />
             </div>
             <p className="w-20 text-right font-heading text-sm font-semibold text-ink">
-              ${(product.price * qty).toFixed(0)}
+              {money(product.price * qty, product.currencyCode)}
             </p>
             <button
-              onClick={() => removeItem(product.id)}
+              onClick={() => removeItem(product.variantId)}
               aria-label={`${t('cart.remove')} ${product.name}`}
               className="text-muted transition-colors hover:text-primary"
             >
@@ -78,17 +82,17 @@ export default function CartPage() {
       <Reveal className="ml-auto mt-8 max-w-xs space-y-3">
         <div className="flex justify-between text-sm text-muted">
           <span>{t('cart.subtotal')}</span>
-          <span>${subtotal.toFixed(0)}</span>
+          <span>{money(subtotal, currencyCode)}</span>
         </div>
         <div className="flex justify-between text-sm text-muted">
           <span>{t('cart.shipping')}</span>
-          <span>{shippingCost === 0 ? t('cart.shippingFree') : `$${shippingCost}`}</span>
+          <span>{shippingCost === 0 ? t('cart.shippingFree') : money(shippingCost, currencyCode)}</span>
         </div>
         <div className="flex justify-between border-t border-[var(--color-border)] pt-3 font-heading text-base font-semibold text-ink">
           <span>{t('cart.total')}</span>
-          <span>${total.toFixed(0)}</span>
+          <span>{money(total, currencyCode)}</span>
         </div>
-        <Link href="/checkout" className="mt-4 block w-full rounded-full bg-primary px-6 py-3 text-center text-sm font-medium text-white transition-transform hover:-translate-y-0.5">
+        <Link href={validationError || validating ? "/cart" : "/checkout"} aria-disabled={!!validationError || validating} className="mt-4 block w-full rounded-full bg-primary px-6 py-3 text-center text-sm font-medium text-white transition-transform hover:-translate-y-0.5">
           {t('cart.checkout')}
         </Link>
       </Reveal>

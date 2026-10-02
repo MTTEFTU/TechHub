@@ -10,7 +10,7 @@ test('Storefront diagnostics are redacted and development-only with safe errors'
   const previousEnv = process.env.NODE_ENV;
   const logs = [];
   console.error = (...args) => logs.push(args.join(' '));
-  const input = { lines: [{ merchandiseId: 'gid://shopify/ProductVariant/123', quantity: 1 }], email: 'buyer@example.com', checkoutId: 'test-checkout' };
+  const input = { lines: [{ merchandiseId: 'gid://shopify/ProductVariant/123', quantity: 1 }], email: 'buyer@example.com', countryCode: 'SA', checkoutId: 'test-checkout' };
   const response = (status, body) => ({
     status, ok: status === 200, headers: { get: () => '2026-07' }, json: async () => body,
   });
@@ -36,12 +36,13 @@ test('Storefront diagnostics are redacted and development-only with safe errors'
     });
     await t.test('cart userErrors and warnings are visible and availability response is preserved', async () => {
       global.fetch = async () => response(200, { data: { cartCreate: {
-        cart: null, userErrors: [{ field: ['input', 'lines'], message: 'Merchandise unavailable' }],
-        warnings: [{ message: 'Inventory warning' }],
+        cart: null, userErrors: [{ field: ['input', 'lines'], message: 'Merchandise unavailable', code: 'MERCHANDISE_NOT_FOUND' }],
+        warnings: [{ message: 'Inventory warning John Doe 123 Private Street buyer@example.com ' + process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN, code: 'MERCHANDISE_NOT_ENOUGH_STOCK' }],
       } } });
       await assert.rejects(createCart(input), { status: 409, message: 'A selected product is unavailable on Shopify.' });
-      assert.match(logs.at(-1), /Merchandise unavailable/);
-      assert.match(logs.at(-1), /Inventory warning/);
+      assert.match(logs.at(-1), /MERCHANDISE_NOT_FOUND/);
+      assert.match(logs.at(-1), /MERCHANDISE_NOT_ENOUGH_STOCK/);
+      for (const sensitive of ['John Doe', '123 Private Street', input.email, process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN]) assert.ok(!logs.at(-1).includes(sensitive));
       assert.match(logs.at(-1), /"status":200/);
     });
     await t.test('invalid JSON and missing payload are diagnosed safely', async () => {
@@ -64,14 +65,20 @@ test('Storefront diagnostics are redacted and development-only with safe errors'
       global.fetch = async () => response(401, { errors: [{ message: 'Internal error' }] });
       await assert.rejects(createCart(input), { status: 502, message: 'Shopify Checkout could not be created. Please try again.' });
       assert.equal(logs.length, count);
+      global.fetch = async () => response(200, { data: { cartCreate: { cart: { id: 'test', checkoutUrl: 'https://example.com', buyerIdentity: { countryCode: 'SA' } }, userErrors: [], warnings: [] } } });
+      await createCart(input);
+      assert.equal(logs.length, count);
     });
-    await t.test('successful carts retain behavior without logging', async () => {
+    await t.test('successful carts emit only safe country diagnostics in development', async () => {
       process.env.NODE_ENV = 'development';
       const count = logs.length;
-      const cart = { id: 'test', checkoutUrl: 'https://diagnostic-test.myshopify.com/checkouts/test' };
+      const cart = { buyerIdentity: { countryCode: 'SA' }, id: 'test', checkoutUrl: 'https://diagnostic-test.myshopify.com/checkouts/test' };
       global.fetch = async () => response(200, { data: { cartCreate: { cart, userErrors: [], warnings: [] } } });
       assert.deepEqual(await createCart(input), cart);
-      assert.equal(logs.length, count);
+      assert.equal(logs.length, count + 1);
+      assert.match(logs.at(-1), /"requestedCountryCode":"SA"/);
+      assert.match(logs.at(-1), /"returnedCountryCode":"SA"/);
+      assert.ok(!logs.at(-1).includes(input.email));
     });
   } finally {
     global.fetch = previousFetch;

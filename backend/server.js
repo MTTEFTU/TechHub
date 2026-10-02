@@ -7,6 +7,7 @@ const morgan = require('morgan');
 const { connectToDatabase } = require('./config/database');
 
 const app = express();
+function reqCatalog(req) { return (req.method === 'POST' && req.path === '/products/quote') || req.method === 'GET' && (req.path === '/products' || req.path === '/categories' || /^\/products\/[^/]+$/.test(req.path)); }
 const allowedOrigins = (process.env.CLIENT_URL || '')
   .split(',')
   .map((origin) => origin.trim().replace(/\/$/, ''))
@@ -18,12 +19,12 @@ app.use(cors({ origin: allowedOrigins, credentials: true }));
 if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
+app.use('/api/shopify/webhooks', require('./routes/shopifyWebhook'));
 app.use('/api', async (_req, _res, next) => {
-  if (process.env.NODE_ENV === 'test') return next();
+  if (process.env.NODE_ENV === 'test' || (reqCatalog(_req))) return next();
   try { await connectToDatabase(); next(); }
   catch (error) { next(error); }
 });
-app.use('/api/shopify/webhooks', require('./routes/shopifyWebhook'));
 app.use(express.json({ limit: '1mb' }));
 
 app.use('/api/auth', require('./routes/auth'));

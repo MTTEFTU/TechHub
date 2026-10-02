@@ -3,12 +3,16 @@ const mongoose = require('mongoose');
 const orderSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   products: [{
-    product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
+    product: { type: String, required: true },
+    variantId: String,
     name: { type: String, required: true },
     image: String,
     price: { type: Number, required: true },
     quantity: { type: Number, required: true, min: 1 },
   }],
+  idempotencyKey: { type: String, unique: true, sparse: true },
+  creationStatus: { type: String, enum: ['creating', 'ready', 'failed'], default: 'ready' },
+  currencyCode: { type: String, default: '' },
   totalAmount: { type: Number, required: true, min: 0 },
   shippingAmount: { type: Number, default: 0, min: 0 },
   shippingAddress: {

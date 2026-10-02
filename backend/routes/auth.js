@@ -2,7 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const Product = require('../models/Product');
+const { getProduct } = require('../services/catalog');
 const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
@@ -43,17 +43,19 @@ router.put('/profile', authenticate, async (req, res, next) => {
 
 router.get('/wishlist', authenticate, async (req, res, next) => {
   try {
-    const user = await User.findById(req.user.id).populate('wishlist');
-    res.json({ products: user.wishlist });
+    const user = await User.findById(req.user.id);
+    const products = await Promise.all(user.wishlist.filter(id => String(id).startsWith('gid://shopify/Product/')).map(id => getProduct(String(id))));
+    res.json({ products: products.filter(Boolean) });
   } catch (error) { next(error); }
 });
 router.put('/wishlist/:productId', authenticate, async (req, res, next) => {
   try {
-    if (!await Product.exists({ _id: req.params.productId })) return res.status(404).json({ message: 'Product not found.' });
+    const product = await getProduct(req.params.productId);
+    if (!product) return res.status(404).json({ message: 'Product not found.' });
     const user = await User.findById(req.user.id);
-    const index = user.wishlist.findIndex((id) => id.toString() === req.params.productId);
+    const index = user.wishlist.findIndex((id) => id.toString() === product._id);
     const added = index < 0;
-    if (added) user.wishlist.push(req.params.productId);
+    if (added) user.wishlist.push(product._id);
     else user.wishlist.splice(index, 1);
     await user.save();
     res.json({ added, productId: req.params.productId });
